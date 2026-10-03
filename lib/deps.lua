@@ -162,54 +162,71 @@ function Deps:ensure(ids, opts)
 
   local running = true
   local menu_active = norns.menu.status()
-  local saved
-  local function close()
-    running = false
+  local saved = {
+    key = key, enc = enc, redraw = redraw, refresh = refresh,
+    script_redraw = norns.script.redraw,
+  }
+  if menu_active then
+    saved.menu = {
+      enc = norns.menu.get_enc(), key = norns.menu.get_key(),
+      redraw = norns.menu.get_redraw(), refresh = norns.menu.get_refresh(),
+    }
+  end
+
+  local function installer_redraw() ui.draw(s) end
+  local function installer_enc(n, d)
+    ui.enc(s, n, d)
+    installer_redraw()
+  end
+  local close
+  local function installer_key(n, z)
+    if ui.key(s, n, z) then close() else installer_redraw() end
+  end
+
+  -- norns restores `redraw` from norns.script.redraw, and `_menu.key` and
+  -- the encoder callback from the globals, whenever the menu is left or
+  -- norns.menu.init() runs, so all of them have to point at the installer.
+  local function take_over()
+    key, enc, redraw, refresh = installer_key, installer_enc,
+      installer_redraw, installer_redraw
+    norns.script.redraw = installer_redraw
     if menu_active then
-      norns.menu.set(saved.enc, saved.key, saved.redraw, saved.refresh)
+      norns.menu.set(installer_enc, installer_key, installer_redraw,
+        installer_redraw)
     else
-      key, enc, redraw, refresh = saved.key, saved.enc, saved.redraw,
-        saved.refresh
+      norns.menu.init()
+      -- init() leaves the screen to the script; draw ours again
+      redraw = installer_redraw
+    end
+  end
+
+  function close()
+    running = false
+    key, enc, refresh = saved.key, saved.enc, saved.refresh
+    norns.script.redraw = saved.script_redraw
+    if menu_active then
+      redraw = saved.redraw
+      norns.menu.set(saved.menu.enc, saved.menu.key, saved.menu.redraw,
+        saved.menu.refresh)
+    else
+      redraw = saved.script_redraw or saved.redraw
       norns.menu.init()
     end
     finish()
     if menu_active then
-      if saved.redraw then saved.redraw() end
+      if saved.menu.redraw then saved.menu.redraw() end
     elseif redraw then
       redraw()
     end
   end
-  local installer_redraw = function() ui.draw(s) end
-  local installer_enc = function(n, d)
-    ui.enc(s, n, d)
-    installer_redraw()
-  end
-  local installer_key = function(n, z)
-    if ui.key(s, n, z) then close() else installer_redraw() end
-  end
 
-  if menu_active then
-    saved = {
-      enc = norns.menu.get_enc(),
-      key = norns.menu.get_key(),
-      redraw = norns.menu.get_redraw(),
-      refresh = norns.menu.get_refresh(),
-    }
-    norns.menu.set(installer_enc, installer_key, installer_redraw,
-      installer_redraw)
-  else
-    saved = { key = key, enc = enc, redraw = redraw, refresh = refresh }
-    key, enc, redraw, refresh = installer_key, installer_enc,
-      installer_redraw, installer_redraw
-    norns.menu.init()
-  end
-
+  take_over()
   clock.run(function()
     while running do
       clock.sleep(0.25)
       if running then
         s:tick()
-        if running then redraw() end
+        if running then installer_redraw() end
       end
     end
   end)

@@ -96,7 +96,11 @@ end
 
 local function draw_done(s)
   header(s, "ready")
-  text(64, 36, "all dependencies in place", 15, false)
+  screen.level(15)
+  screen.move(64, 36)
+  screen.text_center("all dependencies")
+  screen.move(64, 46)
+  screen.text_center("in place")
   footer(nil, "K3 ok")
 end
 
