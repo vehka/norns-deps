@@ -52,6 +52,8 @@ decided at init.
 | `check_ugens` | plugin/class file name(s) that must exist on the SC class path |
 | `check_fn` | function returning true when satisfied |
 | `needs` | ids installed first |
+| `restart` | installing it needs an sclang restart (UGens, classes); the screen ends with K3 restart / K2 later, and `on_done` gets `needs_restart` |
+| `manual` | shown instead of "no recipe" when nothing matches the platform |
 | `optional` | a failure is skipped instead of stopping the run |
 | `pkg`, `pipx`, `url`, `cmd` | shorthand for a single step |
 | `install` | list of `{ when = {...}, steps = {...} }`; the first recipe whose `when` matches wins. `when` keys: `arch`, `pm`, `desktop`, `shield`, `os_id` |
@@ -73,6 +75,21 @@ Steps that need root (`pkg`, `priv = true`) use, in order: already root,
 `sudo -n` (norns shields have it), or on desktop `pkexec` (graphical
 password prompt). With none of these the installer screen lists the exact
 `sudo ...` command to run by hand instead of failing halfway.
+
+### Restart required
+
+A dependency with `restart = true` is only usable once sclang has been
+restarted. After installing it, the library writes a marker file and shows
+"restart needed"; K3 calls `_norns.reset()` (restarts sclang and matron, what
+SYSTEM > RESTART ends with). `d:restart_pending()` compares the marker with
+sclang's start time, so the prompt comes back after a script reload until the
+restart has really happened. `d:ensure` shows only that screen when nothing is
+missing but a restart is still pending.
+
+Mods have no `include()`: load the library with
+`dofile(_path.code .. mod.this_name .. "/lib/deps.lua")` and call `ensure`
+from a `script_post_init` hook, since loading a script resets the key, enc
+and redraw handlers.
 
 ### UGen conflicts
 

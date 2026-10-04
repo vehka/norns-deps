@@ -78,16 +78,39 @@ local function draw_failed(s)
   footer("K2 close", "K3 retry")
 end
 
+-- word wrap to `cols` characters (the 128 px screen fits about 21)
+local function wrap(str, cols)
+  local lines, line = {}, ""
+  for word in str:gmatch("%S+") do
+    while #word > cols do
+      if line ~= "" then lines[#lines + 1] = line line = "" end
+      lines[#lines + 1] = word:sub(1, cols)
+      word = word:sub(cols + 1)
+    end
+    if line == "" then line = word
+    elseif #line + 1 + #word <= cols then line = line .. " " .. word
+    else lines[#lines + 1] = line line = word end
+  end
+  if line ~= "" then lines[#lines + 1] = line end
+  return lines
+end
+M.wrap = wrap
+
 local function draw_blocked(s)
   header(s, "can't install here")
-  local y = 18
+  local y = 17
   for _, item in ipairs(s.items) do
     if item.blocked then
-      text(0, y, trim(item.spec.id .. ": " .. item.blocked, 127), 15)
-      y = y + 8
-      if item.hint then
-        text(0, y, trim(item.hint, 127), 6)
+      local lines = wrap(item.spec.id .. ": " .. item.blocked, 21)
+      for _, line in ipairs(lines) do
+        if y < 54 then text(0, y, line, 15) end
         y = y + 8
+      end
+      if item.hint then
+        for _, line in ipairs(wrap(item.hint, 21)) do
+          if y < 54 then text(0, y, line, 6) end
+          y = y + 8
+        end
       end
     end
   end
@@ -95,13 +118,22 @@ local function draw_blocked(s)
 end
 
 local function draw_done(s)
-  header(s, "ready")
   screen.level(15)
-  screen.move(64, 36)
-  screen.text_center("all dependencies")
-  screen.move(64, 46)
-  screen.text_center("in place")
-  footer(nil, "K3 ok")
+  if s.needs_restart then
+    header(s, "restart needed")
+    screen.move(64, 30)
+    screen.text_center("installed. restart to")
+    screen.move(64, 40)
+    screen.text_center("load the new UGens")
+    footer("K2 later", "K3 restart")
+  else
+    header(s, "ready")
+    screen.move(64, 36)
+    screen.text_center("all dependencies")
+    screen.move(64, 46)
+    screen.text_center("in place")
+    footer(nil, "K3 ok")
+  end
 end
 
 local drawers = {
@@ -130,7 +162,12 @@ function M.key(s, n, z)
   elseif s.state == "blocked" then
     if n == 2 or n == 3 then return true end
   elseif s.state == "done" then
-    if n >= 2 then return true end
+    if s.needs_restart then
+      if n == 3 then s.deps.restart() return true end
+      if n == 2 then return true end
+    elseif n >= 2 then
+      return true
+    end
   end
   return false
 end

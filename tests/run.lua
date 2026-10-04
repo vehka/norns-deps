@@ -199,6 +199,46 @@ test("needs are installed first, once", function()
   eq(table.concat(e, ","), "b,a,c")
 end)
 
+test("restart: install of a restart dep marks it, pending until sclang restarts", function()
+  local d = mkdeps()
+  d:add { id = "r", restart = true, check_file = tmp .. "/rr", cmd = "touch " .. tmp .. "/rr" }
+  local s = d:session { "r" }
+  s:confirm(); finish(s)
+  eq(s.state, "done"); eq(s.needs_restart, true)
+  d.sclang_uptime = function() return 1000 end   -- started before the install
+  eq(d:restart_pending(), true)
+  d.sclang_uptime = function() return 0 end      -- restarted afterwards
+  os.execute("sleep 1.1")
+  eq(d:restart_pending(), false)
+  d.sclang_uptime = function() return nil end    -- not running
+  eq(d:restart_pending(), false)
+end)
+
+test("restart: satisfied deps still prompt while a restart is pending", function()
+  local d = mkdeps()
+  d:add { id = "r2", restart = true, check_file = tmp .. "/rr", cmd = "true" }
+  d.sclang_uptime = function() return 100000 end
+  d:mark_restart()
+  local s = d:session { "r2" }
+  eq(s.state, "done"); eq(s.needs_restart, true)
+end)
+
+test("manual hint replaces 'no recipe' on other platforms", function()
+  local d = mkdeps()
+  d:add { id = "m", check = "nonexistent-tool-xyz", manual = "build it from source",
+          install = { { when = { arch = "armv7l" }, steps = { { cmd = "true" } } } } }
+  d.platform = { arch = "x86_64", pm = "pacman", priv = nil, home = tmp }
+  local s = d:session { "m" }
+  eq(s.state, "blocked"); eq(s.items[1].blocked, "build it from source")
+end)
+
+test("ui wrap", function()
+  local ui = dofile("lib/deps/ui.lua")
+  local lines = ui.wrap("mi: build the UGens for your platform from source", 21)
+  for _, l in ipairs(lines) do assert(#l <= 21, l) end
+  eq(table.concat(lines, " "), "mi: build the UGens for your platform from source")
+end)
+
 os.execute("rm -rf " .. tmp)
 print(string.format("%d tests, %d failed", count, failures))
 os.exit(failures == 0 and 0 or 1)
