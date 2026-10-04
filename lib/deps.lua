@@ -150,6 +150,19 @@ function Deps:restart_pending()
   return installed ~= nil and uptime ~= nil and installed > os.time() - uptime
 end
 
+function Deps:jack_files_missing()
+  return platform.jack_files_missing(self.platform)
+end
+
+-- reboot the device (a restart can't recover from missing JACK files)
+function Deps.reboot()
+  if norns and norns.state then
+    norns.state.clean_shutdown = true
+    norns.state.save()
+  end
+  if _norns and _norns.execute then _norns.execute("sudo shutdown -r now") end
+end
+
 -- restart sclang and matron (what SYSTEM > RESTART does at its end)
 function Deps.restart()
   if _norns and _norns.reset then _norns.reset() end

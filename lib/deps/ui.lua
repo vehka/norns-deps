@@ -136,7 +136,17 @@ local function draw_done(s)
   end
 end
 
+local function draw_reboot(s)
+  header(s, "restart would fail")
+  for i, line in ipairs(wrap("JACK's files are gone, "
+      .. "usually after an ssh logout. Reboot the device instead.", 21)) do
+    text(0, 17 + (i - 1) * 9, line, 15)
+  end
+  footer("K2 later", "K3 reboot")
+end
+
 local drawers = {
+  reboot = draw_reboot,
   review = draw_review, running = draw_running, failed = draw_failed,
   blocked = draw_blocked, done = draw_done,
 }
@@ -161,9 +171,19 @@ function M.key(s, n, z)
     if n == 3 then s:retry() end
   elseif s.state == "blocked" then
     if n == 2 or n == 3 then return true end
+  elseif s.state == "reboot" then
+    if n == 3 then s.deps.reboot() return true end
+    if n == 2 then return true end
   elseif s.state == "done" then
     if s.needs_restart then
-      if n == 3 then s.deps.restart() return true end
+      if n == 3 then
+        if s.deps:jack_files_missing() then
+          s.state = "reboot"
+        else
+          s.deps.restart()
+          return true
+        end
+      end
       if n == 2 then return true end
     elseif n >= 2 then
       return true

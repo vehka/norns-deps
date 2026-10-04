@@ -239,6 +239,29 @@ test("ui wrap", function()
   eq(table.concat(lines, " "), "mi: build the UGens for your platform from source")
 end)
 
+test("restart: missing JACK files offer a reboot instead", function()
+  local ui = dofile("lib/deps/ui.lua")
+  local d = mkdeps()
+  d:add { id = "j", restart = true, check_file = tmp .. "/jj", cmd = "touch " .. tmp .. "/jj" }
+  local s = d:session { "j" }
+  s:confirm(); finish(s)
+  local calls = {}
+  d.restart = function() calls[#calls + 1] = "restart" end
+  d.reboot = function() calls[#calls + 1] = "reboot" end
+  d.jack_files_missing = function() return true end
+  eq(ui.key(s, 3, 1), false); eq(s.state, "reboot"); eq(#calls, 0)
+  eq(ui.key(s, 3, 1), true); eq(calls[1], "reboot")
+  -- healthy JACK: straight to restart
+  s = d:session { "j" }
+  d.jack_files_missing = function() return false end
+  s.needs_restart = true; s.state = "done"
+  eq(ui.key(s, 3, 1), true); eq(calls[2], "restart")
+end)
+
+test("jack_files_missing is false on desktop", function()
+  eq(platform.jack_files_missing({ desktop = true }), false)
+end)
+
 os.execute("rm -rf " .. tmp)
 print(string.format("%d tests, %d failed", count, failures))
 os.exit(failures == 0 and 0 or 1)
