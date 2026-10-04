@@ -55,7 +55,7 @@ test("missing root gives reason and manual command", function()
   local s, err, hint = steps.build({ pkg = "sox" }, arch, { dir = tmp })
   eq(s, nil)
   contains(err, "needs root")
-  contains(hint, "sudo pacman -S --needed")
+  eq(hint, "sudo pacman -S sox")
 end)
 
 test("pkexec wrapper", function()

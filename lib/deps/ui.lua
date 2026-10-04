@@ -96,31 +96,40 @@ local function wrap(str, cols)
 end
 M.wrap = wrap
 
-local function draw_blocked(s)
-  header(s, "can't install here")
-  local y = 17
+-- the reason and the command to run by hand for each blocked item, as
+-- screen lines; E2 scrolls when they don't fit
+local function blocked_lines(s)
+  local lines = {}
   for _, item in ipairs(s.items) do
     if item.blocked then
-      local lines = wrap(item.spec.id .. ": " .. item.blocked, 21)
-      for _, line in ipairs(lines) do
-        if y < 54 then text(0, y, line, 15) end
-        y = y + 8
+      for _, l in ipairs(wrap(item.spec.id .. ": " .. item.blocked, 21)) do
+        lines[#lines + 1] = { l, 15 }
       end
       if item.hint then
-        for _, line in ipairs(wrap(item.hint, 21)) do
-          if y < 54 then text(0, y, line, 6) end
-          y = y + 8
+        for _, l in ipairs(wrap(item.hint, 21)) do
+          lines[#lines + 1] = { l, 6 }
         end
       end
     end
   end
-  footer(nil, "K2 close")
+  return lines
+end
+
+local function draw_blocked(s)
+  header(s, "blocked")
+  local lines = blocked_lines(s)
+  local first = math.max(0, math.min(s.scroll or 0, #lines - 5))
+  for row = 1, 5 do
+    local line = lines[first + row]
+    if line then text(0, 17 + (row - 1) * 8, line[1], line[2]) end
+  end
+  footer(#lines > 5 and "E2 scroll" or nil, "K2 close")
 end
 
 local function draw_done(s)
-  screen.level(15)
   if s.needs_restart then
     header(s, "restart needed")
+    screen.level(15)
     screen.move(64, 30)
     screen.text_center("installed. restart to")
     screen.move(64, 40)
@@ -128,6 +137,7 @@ local function draw_done(s)
     footer("K2 later", "K3 restart")
   else
     header(s, "ready")
+    screen.level(15)
     screen.move(64, 36)
     screen.text_center("all dependencies")
     screen.move(64, 46)
@@ -137,7 +147,7 @@ local function draw_done(s)
 end
 
 local function draw_reboot(s)
-  header(s, "restart would fail")
+  header(s, "reboot needed")
   for i, line in ipairs(wrap("JACK's files are gone, "
       .. "usually after an ssh logout. Reboot the device instead.", 21)) do
     text(0, 17 + (i - 1) * 9, line, 15)
@@ -198,6 +208,8 @@ function M.enc(s, n, d)
     s.sel = math.max(1, math.min(#s.items, s.sel + d))
   elseif s.state == "failed" then
     s.scroll = math.max(0, s.scroll - d)
+  elseif s.state == "blocked" then
+    s.scroll = math.max(0, (s.scroll or 0) + d)
   end
 end
 
