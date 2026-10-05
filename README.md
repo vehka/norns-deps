@@ -49,13 +49,13 @@ decided at init.
 | `label`, `why`, `size` | shown in the review list |
 | `check` | command(s) that must be on PATH (also looks in `~/.local/bin`, `/usr/local/bin`) |
 | `check_file` | file(s) that must exist |
-| `check_ugens` | plugin/class file name(s) that must exist on the SC class path |
+| `check_ugens` | plugin or class file name(s) SuperCollider must find: `"MiPlaits"` (a plugin, `.so` or `.scx`) or `"MiPlaits.sc"` |
 | `check_fn` | function returning true when satisfied |
 | `needs` | ids installed first |
-| `restart` | installing it needs an sclang restart (UGens, classes); the screen ends with K3 restart / K2 later, and `on_done` gets `needs_restart` |
+| `restart` | installing it needs an sclang restart (UGens, classes; set automatically by a `ugens` step); the screen ends with K3 restart / K2 later, and `on_done` gets `needs_restart` |
 | `manual` | shown instead of "no recipe" when nothing matches the platform |
 | `optional` | a failure is skipped instead of stopping the run |
-| `pkg`, `pipx`, `url`, `cmd` | shorthand for a single step |
+| `pkg`, `pipx`, `url`, `ugens`, `cmd` | shorthand for a single step |
 | `install` | list of `{ when = {...}, steps = {...} }`; the first recipe whose `when` matches wins. `when` keys: `arch`, `pm`, `desktop`, `shield`, `os_id` |
 
 Steps:
@@ -64,7 +64,13 @@ Steps:
 - `{ pipx = "package" }`
 - `{ url = ..., dest = ..., sha256 = ..., extract = dir }` (wget, or curl;
   `.zip` is unzipped, anything else goes through `tar -xf`)
+- `{ ugens = url, into = "folder", sha256 = ... }`, see [UGens](#ugens)
 - `{ cmd = "shell", priv = true, step_label = "...", progress = "percent" }`
+
+In `url` and `ugens`, `{arch}` in the URL is replaced by the machine name
+(`armv7l`, `aarch64`, `x86_64`), and `sha256` can be a table of checksums by
+machine name. A machine that is not in the table has no download: the
+dependency is blocked and shows its `manual` text.
 
 A dependency counts as installed only if its check passes after the steps
 ran; otherwise the run stops with "installed, but the check still fails".
@@ -91,12 +97,43 @@ Mods have no `include()`: load the library with
 from a `script_post_init` hook, since loading a script resets the key, enc
 and redraw handlers.
 
-### UGen conflicts
+### UGens
 
-`d:ugen_conflicts()` returns file names (`*.scx`, `Capitalised.sc`) that
-exist in more than one place under the SuperCollider Extensions folders and
-the include paths in `sclang_conf.yaml`. Duplicates make sclang or scsynth
-complain, so a script can warn before installing another copy.
+```lua
+d:add { id = "nb_pp", label = "PlaitsPalette UGen", size = "2 MB",
+        check_ugens = "PlaitsPalette",
+        ugens = "https://github.com/me/nb_pp/releases/download/v1/"
+          .. "PlaitsPalette-{arch}.tar.gz",
+        sha256 = { armv7l = "...", aarch64 = "..." },
+        manual = "build it: ugen/build.sh install" }
+```
+
+A `ugens` step downloads an archive (or a single `.so` / `.scx` / `.sc`) and
+copies its contents to
+`~/.local/share/SuperCollider/Extensions/<into>`; `into` defaults to the
+dependency's id. `restart` is switched on, so the screen ends with the
+restart prompt.
+
+A plugin or class file that SuperCollider already finds somewhere else is
+left out of the copy and named in the log, because a second copy of a class
+stops sclang from compiling at all. So a pack that overlaps with something
+installed by hand or by another script installs only what is new.
+
+To make an archive, on each kind of device:
+
+```sh
+tar -czf PlaitsPalette-$(uname -m).tar.gz PlaitsPalette.so   # plus any .sc
+sha256sum PlaitsPalette-$(uname -m).tar.gz
+```
+
+A plugin has to be built for the machine and for the SuperCollider version
+that runs it. Building on the device is an ordinary `cmd` step instead.
+
+`d:ugen_conflicts()` returns the file names that exist in more than one
+place, as `{ name = { paths } }`: plugins (`*.so`, `*.scx`) under the
+Extensions and plugin folders scsynth loads from, class files
+(`Capitalised.sc`) under the Extensions folders and the include paths in
+`sclang_conf.yaml` (on norns, all of `dust`).
 
 ## How it works
 
@@ -113,4 +150,4 @@ lua5.3 tests/run.lua
 ```
 
 Runs without norns: planning, the job runner, sessions, downloads against a
-local web server, UGen scanning.
+local web server, UGen scanning and install.

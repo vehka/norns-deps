@@ -85,12 +85,12 @@ end)
 
 test("runner: cancel kills the whole group", function()
   local r = runner.new(tmp .. "/r")
-  local job = r:start("sleep 30 & wait")
+  local job = r:start("sleep 31.7 & wait")
   os.execute("sleep 0.5")
   job:cancel()
   local res = wait(job)
   eq(res.code, 143)
-  eq(platform.run("pgrep -f '[s]leep 30'"), false)
+  eq(platform.run("pgrep -f '[s]leep 31.7'"), false)
 end)
 
 test("runner: apt and percent progress parsing", function()
@@ -188,6 +188,73 @@ test("ugens: duplicates across roots", function()
   eq(#dups["MiPlaits.scx"], 2)
   eq(dups["Solo.scx"], nil)
   eq(deps.ugens.installed({ home = tmp }, "Solo.scx"), true)
+  eq(deps.ugens.installed({ home = tmp }, "Solo"), true)
+  eq(deps.ugens.installed({ home = tmp }, "Nope"), false)
+end)
+
+test("ugens: plugins outside the plugin folders don't count", function()
+  local home = tmp .. "/home2"
+  local dust, ext = home .. "/dust", home .. "/.local/share/SuperCollider/Extensions"
+  os.execute("mkdir -p " .. dust .. "/code/x/build " .. ext .. "/x " .. home .. "/.config/SuperCollider")
+  local f = io.open(home .. "/.config/SuperCollider/sclang_conf.yaml", "w")
+  f:write("includePaths:\n    - " .. dust .. "\nexcludePaths:\n    []\n")
+  f:close()
+  os.execute("touch " .. dust .. "/code/x/build/Foo.so " .. dust .. "/code/x/Foo.sc")
+  local p = { home = home }
+  eq(deps.ugens.installed(p, "Foo"), false)     -- scsynth doesn't look in dust
+  eq(deps.ugens.installed(p, "Foo.sc"), true)   -- sclang does
+  os.execute("touch " .. ext .. "/x/Foo.so " .. ext .. "/x/Foo.sc")
+  local dups = deps.ugens.duplicates(p)
+  eq(dups["Foo.so"], nil)
+  eq(#dups["Foo.sc"], 2)
+end)
+
+test("ugens step: per-arch url and checksum, folder from the id", function()
+  local d = deps.new { name = "t", dir = tmp .. "/u", platform = apt }
+  d:add { id = "pp", check_ugens = "PlaitsPalette",
+          ugens = "http://h/PlaitsPalette-{arch}.tar.gz",
+          sha256 = { armv7l = "abc" }, manual = "build it" }
+  eq(d.specs.pp.restart, true)
+  local step = d:session({ "pp" }).queue[1].step
+  contains(step.cmd, "http://h/PlaitsPalette-armv7l.tar.gz")
+  contains(step.cmd, "abc  ")
+  contains(step.cmd, "/Extensions/pp'")
+  d.platform = { arch = "x86_64", pm = "pacman", home = tmp }
+  local s = d:session { "pp" }
+  eq(s.state, "blocked"); eq(s.items[1].blocked, "build it")
+  local _, err = steps.build({ ugens = "http://h/a.tgz", into = "../x" }, apt, { dir = tmp })
+  contains(err, "into")
+end)
+
+test("ugens step installs, and leaves out files that are already there", function()
+  if not (platform.have("wget") or platform.have("curl")) or not platform.have("python3") then return end
+  local home, web = tmp .. "/home3", tmp .. "/web3"
+  local ext = home .. "/.local/share/SuperCollider/Extensions"
+  os.execute("mkdir -p " .. web .. "/src/classes " .. ext .. "/other")
+  os.execute("cd " .. web .. "/src && touch New.so Old.so classes/New.sc classes/Old.sc README.md"
+    .. " && tar -czf ../pack-armv7l.tar.gz . && touch " .. ext .. "/other/Old.so " .. ext .. "/other/Old.sc")
+  local sum = platform.capture("sha256sum " .. web .. "/pack-armv7l.tar.gz"):match("^(%x+)")
+  local pid = platform.capture("cd " .. web .. "; python3 -m http.server 18766 >/dev/null 2>&1 & echo $!")
+  os.execute("sleep 1")
+  local p = { arch = "armv7l", pm = "apt", priv = "sudo", home = home, desktop = false }
+  local d = deps.new { name = "t", dir = tmp .. "/u3", platform = p }
+  d:add { id = "pack", check_ugens = { "New", "Old", "New.sc" },
+          ugens = "http://127.0.0.1:18766/pack-{arch}.tar.gz", sha256 = sum }
+  local s = d:session { "pack" }
+  s:confirm(); finish(s)
+  eq(s.state, "done", s.error); eq(s.needs_restart, true)
+  local function exists(path) return platform.run("test -f " .. ext .. "/" .. path) end
+  eq(exists("pack/New.so"), true); eq(exists("pack/classes/New.sc"), true)
+  eq(exists("pack/Old.so"), false); eq(exists("pack/classes/Old.sc"), false)
+  eq(next(d:ugen_conflicts()), nil)
+  -- a second run overwrites its own files instead of skipping them
+  os.execute("rm " .. ext .. "/other/Old.so")
+  d.specs.pack.check_fn = function() return false end
+  s = d:session { "pack" }
+  s:confirm(); finish(s)
+  os.execute("kill " .. pid)
+  eq(exists("pack/New.so"), true); eq(exists("pack/Old.so"), true)
+  eq(platform.capture("ls /tmp | grep -c '^tmp\\..*\\.list$'"), "0")
 end)
 
 test("needs are installed first, once", function()
@@ -256,6 +323,14 @@ test("restart: missing JACK files offer a reboot instead", function()
   d.jack_files_missing = function() return false end
   s.needs_restart = true; s.state = "done"
   eq(ui.key(s, 3, 1), true); eq(calls[2], "restart")
+end)
+
+test("capture returns one value under norns too", function()
+  util = { os_capture = function() return "42\n" end }
+  local n = select("#", platform.capture("true"))
+  local v = tonumber(platform.capture("true"))
+  util = nil
+  eq(n, 1); eq(v, 42)
 end)
 
 test("jack_files_missing is false on desktop", function()

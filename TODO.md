@@ -1,6 +1,6 @@
 # TODO
 
-State: library, UI and tests work (`lua5.3 tests/run.lua`, 17 tests). Verified
+State: library, UI and tests work (`lua5.3 tests/run.lua`, 27 tests). Verified
 on desktop norns (Manjaro) with fake deps and a real download. First consumer
 is the `SPEECH` script.
 
@@ -13,14 +13,16 @@ is the `SPEECH` script.
   command planning is tested.
 - ~~Speech's auto-open at init and the "install dependencies" params trigger.~~
 - ~~The script reload after a successful install (`norns.script.load`).~~
+- ~~The `ugens` step on a device, with a real plugin (nb_pp's PlaitsPalette)
+  and the restart after it.~~ (shield, armv7l, served over the LAN)
 - rp4 variants (XL, fates, rp4 shields): only assumed to match shield.
 
 ## Next
 
-- UGen install recipe: download a prebuilt `.scx` / build from source into
-  `~/.local/share/SuperCollider/Extensions`, then `ugen_conflicts()` warning
-  before and after. sclang needs a restart after a new UGen; the UI should
-  say so.
+- Show the "skipped X: already at ..." lines of a `ugens` step on the done
+  screen; they are only in the job log now.
+- A 64-bit kernel under a 32-bit system reports `aarch64`; `{arch}` then
+  picks the wrong plugin. Detect the userland (`dpkg --print-architecture`).
 - Show a summary of optional deps that failed and were skipped.
 - Cancel while a `pkexec` prompt is open (the job may outlive the cancel).
 - UI: scroll the failed-step log fully; show the manual command on failure
