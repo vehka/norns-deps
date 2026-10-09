@@ -47,7 +47,19 @@ local function read_os_release()
   return info
 end
 
-local function detect_pm(info)
+-- Termux (Android): the whole system lives under $PREFIX, and packages are
+-- installed with `pkg`, without root
+local function termux_prefix()
+  local prefix = os.getenv("PREFIX") or ""
+  if prefix == "" then return nil end
+  if os.getenv("TERMUX_VERSION") or prefix:find("com.termux", 1, true) then
+    return prefix
+  end
+end
+
+local function detect_pm(info, termux)
+  -- termux has apt-get too, but it must not be run directly
+  if termux then return "termux" end
   local ids = " " .. (info.ID or "") .. " " .. (info.ID_LIKE or "") .. " "
   if ids:find(" debian ") or ids:find(" ubuntu ") or ids:find(" raspbian ") then
     return "apt"
@@ -77,16 +89,20 @@ local cached
 function M.detect(overrides)
   if cached and not overrides then return cached end
   local info = read_os_release()
+  local prefix = termux_prefix()
   local desktop = not norns
-  if norns then desktop = norns.is_desktop == true end
+  -- a norns built for termux is not a device either: no systemd, no logind
+  if norns then desktop = norns.is_desktop == true or prefix ~= nil end
   local p = {
     arch = M.capture("uname -m"),
     desktop = desktop,
+    termux = prefix ~= nil,
+    prefix = prefix,
     norns = norns and norns.is_norns or false,
     shield = norns and norns.is_shield or false,
     os_id = info.ID,
     os_name = info.PRETTY_NAME or info.NAME,
-    pm = detect_pm(info),
+    pm = detect_pm(info, prefix ~= nil),
     home = os.getenv("HOME") or "",
   }
   p.priv = detect_priv(desktop)

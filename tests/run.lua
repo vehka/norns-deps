@@ -337,6 +337,20 @@ test("jack_files_missing is false on desktop", function()
   eq(platform.jack_files_missing({ desktop = true }), false)
 end)
 
+test("termux: pkg without root, system paths under $PREFIX", function()
+  local p = { arch = "aarch64", pm = "termux", priv = nil, home = tmp,
+              desktop = true, termux = true, prefix = "/data/usr" }
+  local s = assert(steps.build({ pkg = { apt = "g++", termux = "clang" } }, p, { dir = tmp }))
+  eq(s.run, "pkg install -y clang"); eq(s.priv, nil)
+  eq(steps.matches({ termux = true }, p), true)
+  eq(steps.matches({ termux = true }, apt), false)
+  local roots = table.concat(deps.ugens.plugin_roots(p), " ")
+  contains(roots, "/data/usr/lib/SuperCollider/plugins")
+  contains(roots, "/data/usr/share/SuperCollider/Extensions")
+  eq(roots:find(" /usr/", 1, true), nil)
+  eq(platform.jack_files_missing(p), false)
+end)
+
 os.execute("rm -rf " .. tmp)
 print(string.format("%d tests, %d failed", count, failures))
 os.exit(failures == 0 and 0 or 1)

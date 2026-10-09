@@ -1,7 +1,7 @@
 -- steps.lua: turn a declarative step spec into a shell command.
 --
 -- A step spec is one of
---   { pkg = "name" | { apt = "...", pacman = "...", dnf = "..." } }
+--   { pkg = "name" | { apt = "...", pacman = "...", dnf = "...", termux = "..." } }
 --   { pipx = "package" }
 --   { url = "...", dest = "path", sha256 = "...", extract = "dir" }
 --   { ugens = "url", into = "folder", sha256 = "..." }
@@ -54,6 +54,9 @@ function builders.pkg(spec, p)
     cmd = "pacman -S --needed --noconfirm " .. list
   elseif p.pm == "dnf" then
     cmd = "dnf install -y " .. list
+  elseif p.pm == "termux" then
+    -- no root on termux; pkg refreshes the package lists itself
+    return { label = "pkg: " .. list, cmd = "pkg install -y " .. list }
   end
   local manual = ({
     apt = "apt install ", pacman = "pacman -S ", dnf = "dnf install ",

@@ -5,7 +5,8 @@ pipx tools, downloaded models and samples, UGen binaries. A script describes
 its dependencies in a table; the library checks them, installs what is
 missing in the background, and shows progress and errors on the norns screen.
 
-Works on norns, shields (rp3/rp4, 32- or 64-bit) and desktop norns.
+Works on norns, shields (rp3/rp4, 32- or 64-bit), desktop norns and norns on
+Termux (Android).
 
 ## Use
 
@@ -56,11 +57,12 @@ decided at init.
 | `manual` | shown instead of "no recipe" when nothing matches the platform |
 | `optional` | a failure is skipped instead of stopping the run |
 | `pkg`, `pipx`, `url`, `ugens`, `cmd` | shorthand for a single step |
-| `install` | list of `{ when = {...}, steps = {...} }`; the first recipe whose `when` matches wins. `when` keys: `arch`, `pm`, `desktop`, `shield`, `os_id` |
+| `install` | list of `{ when = {...}, steps = {...} }`; the first recipe whose `when` matches wins. `when` keys: `arch`, `pm`, `desktop`, `shield`, `os_id`, `termux` |
 
 Steps:
 
-- `{ pkg = "name" }` or `{ pkg = { apt = ..., pacman = ..., dnf = ... } }`
+- `{ pkg = "name" }` or
+  `{ pkg = { apt = ..., pacman = ..., dnf = ..., termux = ... } }`
 - `{ pipx = "package" }`
 - `{ url = ..., dest = ..., sha256 = ..., extract = dir }` (wget, or curl;
   `.zip` is unzipped, anything else goes through `tar -xf`)
@@ -81,6 +83,11 @@ Steps that need root (`pkg`, `priv = true`) use, in order: already root,
 `sudo -n` (norns shields have it), or on desktop `pkexec` (graphical
 password prompt). With none of these the installer screen lists the exact
 `sudo ...` command to run by hand instead of failing halfway.
+
+On Termux nothing needs root: `pm` is `termux`, packages are installed with
+`pkg install`, SuperCollider's own folders are looked for under `$PREFIX`,
+and the platform counts as `desktop` (a restart is `_norns.reset()`, never a
+reboot). A `priv = true` command step is blocked there.
 
 ### Restart required
 

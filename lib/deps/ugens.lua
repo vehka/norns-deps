@@ -29,19 +29,26 @@ function M.user_dir(p)
   return p.home .. "/.local/share/SuperCollider/Extensions"
 end
 
+-- where SuperCollider itself is installed; on termux that is $PREFIX
+local function system_prefixes(p)
+  if p.prefix then return { p.prefix } end
+  return { "/usr/local", "/usr" }
+end
+
 local function extension_dirs(p)
-  return {
-    M.user_dir(p),
-    "/usr/local/share/SuperCollider/Extensions",
-    "/usr/share/SuperCollider/Extensions",
-  }
+  local dirs = { M.user_dir(p) }
+  for _, prefix in ipairs(system_prefixes(p)) do
+    dirs[#dirs + 1] = prefix .. "/share/SuperCollider/Extensions"
+  end
+  return dirs
 end
 
 -- where scsynth loads plugins (*.so, *.scx) from
 function M.plugin_roots(p)
   local roots = extension_dirs(p)
-  roots[#roots + 1] = "/usr/local/lib/SuperCollider/plugins"
-  roots[#roots + 1] = "/usr/lib/SuperCollider/plugins"
+  for _, prefix in ipairs(system_prefixes(p)) do
+    roots[#roots + 1] = prefix .. "/lib/SuperCollider/plugins"
+  end
   return roots
 end
 
