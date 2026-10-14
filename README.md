@@ -56,11 +56,13 @@ decided at init.
 | `manual` | shown instead of "no recipe" when nothing matches the platform |
 | `optional` | a failure is skipped instead of stopping the run |
 | `pkg`, `pipx`, `url`, `ugens`, `cmd` | shorthand for a single step |
+| `recommends` | `false` installs a `pkg` without its recommended packages (apt `--no-install-recommends`) |
 | `install` | list of `{ when = {...}, steps = {...} }`; the first recipe whose `when` matches wins. `when` keys: `arch`, `pm`, `desktop`, `shield`, `os_id` |
 
 Steps:
 
-- `{ pkg = "name" }` or `{ pkg = { apt = ..., pacman = ..., dnf = ... } }`
+- `{ pkg = "name" }` or `{ pkg = { apt = ..., pacman = ..., dnf = ... } }`,
+  optionally with `recommends = false`
 - `{ pipx = "package" }`
 - `{ url = ..., dest = ..., sha256 = ..., extract = dir }` (wget, or curl;
   `.zip` is unzipped, anything else goes through `tar -xf`)

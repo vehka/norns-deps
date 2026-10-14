@@ -1,7 +1,8 @@
 -- steps.lua: turn a declarative step spec into a shell command.
 --
 -- A step spec is one of
---   { pkg = "name" | { apt = "...", pacman = "...", dnf = "..." } }
+--   { pkg = "name" | { apt = "...", pacman = "...", dnf = "..." },
+--     recommends = false }
 --   { pipx = "package" }
 --   { url = "...", dest = "path", sha256 = "...", extract = "dir" }
 --   { ugens = "url", into = "folder", sha256 = "..." }
@@ -48,6 +49,7 @@ function builders.pkg(spec, p)
     -- status lines go to stdout, where the runner reads them from the log
     cmd = "DEBIAN_FRONTEND=noninteractive apt-get update -qq"
       .. " && DEBIAN_FRONTEND=noninteractive apt-get install -y"
+      .. (spec.recommends == false and " --no-install-recommends" or "")
       .. " -o APT::Status-Fd=1 " .. list
     progress = "apt"
   elseif p.pm == "pacman" then
@@ -57,7 +59,8 @@ function builders.pkg(spec, p)
   end
   local manual = ({
     apt = "apt install ", pacman = "pacman -S ", dnf = "dnf install ",
-  })[p.pm] .. list
+  })[p.pm] .. (spec.recommends == false and p.pm == "apt"
+    and "--no-install-recommends " or "") .. list
   return { label = p.pm .. ": " .. list, cmd = cmd, priv = true,
            progress = progress, manual = manual }
 end
