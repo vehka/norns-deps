@@ -337,6 +337,99 @@ test("jack_files_missing is false on desktop", function()
   eq(platform.jack_files_missing({ desktop = true }), false)
 end)
 
+test("apt step without recommends", function()
+  local s = assert(steps.build({ pkg = "sox", recommends = false }, apt, { dir = tmp }))
+  contains(s.cmd, "--no-install-recommends")
+  contains(s.manual, "apt install --no-install-recommends sox")
+  local d = deps.new { name = "t", dir = tmp .. "/rec", platform = apt }
+  d:add { id = "x", check = "nonexistent-tool-xyz", pkg = "sox", recommends = false }
+  contains(d:session({ "x" }).queue[1].step.cmd, "--no-install-recommends")
+end)
+
+test("removal steps derived from a recipe, last step first", function()
+  local out = steps.derive_removal { steps = {
+    { pkg = "sox" }, { cmd = "echo hi" }, { pipx = "piper-tts" },
+    { url = "http://x/a.tar", extract = "~/a" }, { url = "http://x/m", dest = "~/m" },
+    { ugens = "http://x/u.tar.gz", into = "U" },
+  } }
+  eq(#out, 4)
+  eq(out[1].ugens, "http://x/u.tar.gz"); eq(out[1].into, "U")
+  eq(out[2].dest, "~/m"); eq(out[3].pipx, "piper-tts"); eq(out[4].pkg, "sox")
+  local rm = assert(steps.build(out[4], apt, { dir = tmp }))
+  contains(rm.run, "sudo -n sh -c"); contains(rm.cmd, "apt-get remove -y sox")
+  contains(assert(steps.build(out[1], apt, { dir = tmp })).cmd, "Extensions/U")
+  contains(assert(steps.build(out[2], apt, { dir = tmp })).cmd, "rm -f '" .. tmp .. "/m'")
+  contains(assert(steps.build(out[3], apt, { dir = tmp })).cmd, "pipx uninstall piper-tts")
+end)
+
+test("manifest round trip", function()
+  local m = deps.manifest.open(tmp .. "/man")
+  m:record("a", { label = "A \"q\"\n", steps = { { cmd = "x", priv = true } } })
+  m:record("b", { steps = {} })
+  m:record("a", { label = "A2", steps = {} })
+  local again = deps.manifest.open(tmp .. "/man")
+  eq(table.concat(again:ids(), ","), "a,b")
+  eq(again:get("a").label, "A2")
+  again:forget("a"); again:forget("b")
+  eq(io.open(tmp .. "/man/manifest.lua"), nil, "empty manifest is deleted")
+end)
+
+test("install records, uninstall removes newest first and forgets", function()
+  local dir, log = tmp .. "/un", tmp .. "/un.log"
+  local a, b = tmp .. "/un_a", tmp .. "/un_b"
+  local pre = tmp .. "/un_pre"
+  os.execute("touch " .. pre)
+  local d = deps.new { name = "t", dir = dir, platform = apt }
+  d:add { id = "pre", check_file = pre, cmd = "true",
+          uninstall = { { cmd = "rm " .. pre } } }
+  d:add { id = "a", check_file = a, cmd = "touch " .. a,
+          uninstall = { { cmd = "rm " .. a .. "; echo a >> " .. log } } }
+  d:add { id = "b", check_file = b, cmd = "touch " .. b, needs = { "a" },
+          uninstall = { { cmd = "rm " .. b .. "; echo b >> " .. log } } }
+  d:add { id = "c", check_file = tmp .. "/un_c", cmd = "touch " .. tmp .. "/un_c" }
+  local s = d:session { "pre", "b", "c" }
+  s:confirm(); finish(s)
+  eq(s.state, "done")
+  -- a fresh instance, without the specs, sees what was installed
+  local u = deps.new { name = "t", dir = dir, platform = apt }
+  eq(table.concat(u:installed(), ","), "a,b,c")
+  local r = u:uninstall_session()
+  eq(r.state, "review")
+  eq(#r.items, 2, "c had nothing to undo and is forgotten at once")
+  eq(r.items[1].spec.id, "b")
+  r:confirm(); finish(r)
+  eq(r.state, "done"); eq(r:ok(), true); eq(r.did_remove, true)
+  local f = io.open(log); local order = f:read("a"); f:close()
+  eq(order, "b\na\n")
+  eq(io.open(a), nil); eq(io.open(b), nil)
+  eq(#u:installed(), 0)
+  eq(io.open(pre) ~= nil, true, "something there before is left alone")
+end)
+
+test("uninstall: failure stops, retry continues", function()
+  local dir, flag = tmp .. "/unf", tmp .. "/unf_flag"
+  local d = deps.new { name = "t", dir = dir, platform = apt }
+  d:add { id = "x", check_file = tmp .. "/unf_x", cmd = "touch " .. tmp .. "/unf_x",
+          uninstall = { { cmd = "test -f " .. flag } } }
+  local s = d:session { "x" }
+  s:confirm(); finish(s)
+  local r = d:uninstall_session()
+  r:confirm(); finish(r)
+  eq(r.state, "failed"); eq(#d:installed(), 1)
+  os.execute("touch " .. flag)
+  r:retry(); finish(r)
+  eq(r.state, "done"); eq(#d:installed(), 0)
+end)
+
+test("uninstall: privileged step without root blocks", function()
+  local dir = tmp .. "/unp"
+  local m = deps.manifest.open(dir)
+  m:record("p", { steps = { { pkg = "foo", remove = true } } })
+  local d = deps.new { name = "t", dir = dir, platform = arch }
+  local r = d:uninstall_session()
+  eq(r.state, "blocked"); contains(r.items[1].hint, "sudo pacman -R foo")
+end)
+
 os.execute("rm -rf " .. tmp)
 print(string.format("%d tests, %d failed", count, failures))
 os.exit(failures == 0 and 0 or 1)

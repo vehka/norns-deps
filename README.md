@@ -57,6 +57,7 @@ decided at init.
 | `optional` | a failure is skipped instead of stopping the run |
 | `pkg`, `pipx`, `url`, `ugens`, `cmd` | shorthand for a single step |
 | `recommends` | `false` installs a `pkg` without its recommended packages (apt `--no-install-recommends`) |
+| `uninstall` | list of steps that undo the install, see [Uninstall](#uninstall) |
 | `install` | list of `{ when = {...}, steps = {...} }`; the first recipe whose `when` matches wins. `when` keys: `arch`, `pm`, `desktop`, `shield`, `os_id` |
 
 Steps:
@@ -136,6 +137,76 @@ place, as `{ name = { paths } }`: plugins (`*.so`, `*.scx`) under the
 Extensions and plugin folders scsynth loads from, class files
 (`Capitalised.sc`) under the Extensions folders and the include paths in
 `sclang_conf.yaml` (on norns, all of `dust`).
+
+## Uninstall
+
+Every dependency that an install session puts in place is written to
+`<dir>/manifest.lua`, together with the steps that remove it again.
+Dependencies that were already there before (their check passed) are not
+listed, so uninstalling never takes away a package the user installed
+themselves.
+
+The removal steps are the dependency's `uninstall` list, or else derived
+from the install recipe: a `pkg` step is removed with the package manager,
+`pipx` with `pipx uninstall`, a `ugens` step by deleting its Extensions
+folder, and a `url` step with `dest` (no `extract`) by deleting the file.
+Commands and extracted archives can't be undone automatically; give those
+an `uninstall` list:
+
+```lua
+d:add { id = "link", check_file = "~/bin/tool",
+        cmd = "ln -s /opt/tool/bin/tool ~/bin/tool",
+        uninstall = { { cmd = "rm -f ~/bin/tool" } } }
+```
+
+`uninstall` steps use the same format as install steps (`priv = true` for
+root, `{ pkg = ..., remove = true }` to remove a package). They are stored
+as data in the manifest, so uninstalling needs only the `dir`:
+
+```lua
+local d = deps.new { name = "myscript", dir = _path.data .. "myscript/deps" }
+d:remove(nil, { on_done = function(ok, results, did_remove, needs_restart) end })
+```
+
+`remove(ids, opts)` opens the same screen as `ensure`: the list of what
+will be removed, K3 to go, progress, retry on failure. Dependencies are
+removed newest first. `ok` is false when the user cancelled or a step
+failed; whatever was removed is gone from the manifest either way, so
+running it again continues where it stopped. `d:installed()` lists the
+ids in the manifest, and `d:uninstall_session(ids)` is the headless
+version.
+
+### Uninstalling a mod
+
+Nothing in norns runs a mod's code when it is removed: maiden and
+modhousekeeper delete its directory. A mod that installs things can ship
+`lib/uninstall.lua`, which returns a function taking an `on_done(ok)`
+callback:
+
+```lua
+-- lib/uninstall.lua
+return function(on_done)
+  local deps = dofile(_path.code .. "mymod/lib/deps.lua")
+  local d = deps.new { name = "mymod", dir = _path.data .. "mymod/deps" }
+  d:remove(nil, { on_done = function(ok) on_done(ok) end })
+end
+```
+
+[modhousekeeper](https://github.com/vehka/modhousekeeper) calls it before
+deleting the mod, and keeps the mod when `ok` is false. Remove the mod's
+own leftovers (data files) there too, but leave the mod's directory and
+`system.mods` to the caller.
+
+The mod itself stays loaded in matron until norns restarts, and its hooks
+keep running: a menu's `deinit`, a script's params, `system_pre_shutdown`.
+Make them check that the mod is still installed before they write data or
+start anything, or they put back what the uninstall removed:
+
+```lua
+local function uninstalled()
+  return not util.file_exists(_path.code .. "mymod/lib/mod.lua")
+end
+```
 
 ## How it works
 

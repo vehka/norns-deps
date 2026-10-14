@@ -5,6 +5,7 @@
 --   d:add { id = "sox", check = "sox", pkg = "sox", size = "1 MB",
 --           why = "resamples rendered audio" }
 --   if not d:ok("sox") then d:ensure({ "sox" }, { on_done = function(ok) end }) end
+--   d:remove(nil, { on_done = function(ok) end })  -- uninstall what it put in
 --
 -- See README.md for the spec format.
 
@@ -22,6 +23,7 @@ local platform = req("platform")
 local steps = req("steps")
 local ugens = req("ugens")
 local session_mod = req("session")
+local manifest_mod = req("manifest")
 local ui = req("ui")
 
 local Deps = {}
@@ -32,6 +34,7 @@ M.platform = platform
 M.ugens = ugens
 M.steps = steps
 M.runner = req("runner")
+M.manifest = manifest_mod
 -- prefix for shell commands that should see pipx / /usr/local binaries
 M.PATH_EXPORT = platform.PATH_EXPORT
 
@@ -51,9 +54,9 @@ local function normalize(spec)
   assert(spec.id, "dependency needs an id")
   if not spec.install then
     local step = {}
-    for _, k in ipairs { "pkg", "pipx", "url", "dest", "sha256", "extract",
-                         "ugens", "into", "cmd", "priv", "step_label",
-                         "progress" } do
+    for _, k in ipairs { "pkg", "recommends", "pipx", "url", "dest", "sha256",
+                         "extract", "ugens", "into", "cmd", "priv",
+                         "step_label", "progress" } do
       step[k] = spec[k]
     end
     if next(step) then spec.install = { { steps = { step } } } end
@@ -126,6 +129,31 @@ function Deps:missing(ids)
     if not self:check(id) then out[#out + 1] = id end
   end
   return out
+end
+
+-- Uninstall bookkeeping. A dependency that a session installs is written to
+-- the manifest with the steps that remove it again: its `uninstall` list,
+-- or for package, pipx, UGen and plain download steps, their opposites.
+function Deps:manifest()
+  if not self._manifest then self._manifest = manifest_mod.open(self.dir) end
+  return self._manifest
+end
+
+function Deps:record(spec)
+  if type(spec) == "string" then spec = self:spec(spec) end
+  local removal = spec.uninstall
+    or steps.derive_removal(steps.recipe(spec, self.platform))
+  self:manifest():record(spec.id, {
+    label = spec.label,
+    at = os.time(),
+    restart = spec.restart or nil,
+    steps = removal,
+  })
+end
+
+-- ids this library installed (and can remove), oldest first
+function Deps:installed()
+  return self:manifest():ids()
 end
 
 -- duplicate UGen/class files on the SC class path: { name = { paths } }
@@ -204,21 +232,9 @@ function Deps:session(ids)
   return session_mod.new(self, self:expand(ids))
 end
 
--- Open the install screen. Takes over key/enc/redraw until it closes, then
--- puts the script's own handlers back and calls
--- opts.on_done(ok, results, did_install, needs_restart).
--- Does nothing (calls on_done at once) when everything is already in place.
-function Deps:ensure(ids, opts)
-  opts = opts or {}
-  local s = self:session(ids)
-  local function finish()
-    local ok = s:ok()
-    if opts.on_done then
-      opts.on_done(ok, s.results, s.did_install, s.needs_restart)
-    end
-  end
-  if s.state == "done" and not s.needs_restart then return finish() end
-
+-- Show a session on the screen. Takes over key/enc/redraw until it closes,
+-- then puts the script's (or the menu's) own handlers back and calls finish.
+local function open_ui(s, finish)
   local running = true
   local menu_active = norns.menu.status()
   local saved = {
@@ -290,6 +306,51 @@ function Deps:ensure(ids, opts)
     end
   end)
   installer_redraw()
+end
+
+-- Open the install screen, then call
+-- opts.on_done(ok, results, did_install, needs_restart).
+-- Does nothing (calls on_done at once) when everything is already in place.
+function Deps:ensure(ids, opts)
+  opts = opts or {}
+  local s = self:session(ids)
+  local function finish()
+    local ok = s:ok()
+    if opts.on_done then
+      opts.on_done(ok, s.results, s.did_install, s.needs_restart)
+    end
+  end
+  if s.state == "done" and not s.needs_restart then
+    finish()
+    return s
+  end
+  open_ui(s, finish)
+  return s
+end
+
+-- headless uninstall session, for tests and custom UIs
+function Deps:uninstall_session(ids)
+  return session_mod.new_uninstall(self, ids)
+end
+
+-- Open the uninstall screen for ids (default: everything in the manifest),
+-- then call opts.on_done(ok, results, did_remove, needs_restart). ok is
+-- false when the user cancelled or a step failed. Needs only `name` and
+-- `dir`, not the dependency specs.
+function Deps:remove(ids, opts)
+  opts = opts or {}
+  local s = self:uninstall_session(ids)
+  local function finish()
+    local ok = s.state ~= "cancelled" and s:ok()
+    if opts.on_done then
+      opts.on_done(ok, s.results, s.did_remove, s.needs_restart)
+    end
+  end
+  if s.state == "done" then
+    finish()
+    return s
+  end
+  open_ui(s, finish)
   return s
 end
 

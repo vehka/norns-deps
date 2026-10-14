@@ -1,6 +1,6 @@
 # TODO
 
-State: library, UI and tests work (`lua5.3 tests/run.lua`, 27 tests). Verified
+State: library, UI and tests work (`lua5.3 tests/run.lua`, 33 tests). Verified
 on desktop norns (Manjaro) with fake deps and a real download. First consumer
 is the `SPEECH` script.
 

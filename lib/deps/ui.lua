@@ -42,7 +42,8 @@ local function bar(x, y, w, h, frac, spin)
 end
 
 local function draw_review(s)
-  header(s, #s.items .. " to install")
+  local removing = s.mode == "uninstall"
+  header(s, #s.items .. (removing and " to remove" or " to install"))
   local first = math.max(1, math.min(s.sel - 1, #s.items - 2))
   for row = 0, 2 do
     local item = s.items[first + row]
@@ -55,8 +56,8 @@ local function draw_review(s)
     end
   end
   local sel = s.items[s.sel]
-  text(0, 53, trim(sel.blocked or sel.spec.why or "", 127), 8)
-  footer("K2 cancel", "K3 install")
+  text(0, 53, trim(sel.blocked or (not removing and sel.spec.why) or "", 127), 8)
+  footer("K2 cancel", removing and "K3 remove" or "K3 install")
 end
 
 local function draw_running(s)
@@ -127,14 +128,23 @@ local function draw_blocked(s)
 end
 
 local function draw_done(s)
+  local removing = s.mode == "uninstall"
   if s.needs_restart then
     header(s, "restart needed")
     screen.level(15)
     screen.move(64, 30)
-    screen.text_center("installed. restart to")
+    screen.text_center(removing and "removed. restart to" or "installed. restart to")
     screen.move(64, 40)
-    screen.text_center("load the new UGens")
+    screen.text_center(removing and "unload the UGens" or "load the new UGens")
     footer("K2 later", "K3 restart")
+  elseif removing then
+    header(s, "removed")
+    screen.level(15)
+    screen.move(64, 36)
+    screen.text_center("dependencies")
+    screen.move(64, 46)
+    screen.text_center("removed")
+    footer(nil, "K3 ok")
   else
     header(s, "ready")
     screen.level(15)

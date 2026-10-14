@@ -5,6 +5,10 @@
 --         "failed"  a required step failed (retry or close)
 --         "blocked" something cannot be installed from here (shows commands)
 --         "done"    everything is in place
+--
+-- An uninstall session (M.new_uninstall) runs the removal steps stored in
+-- the manifest instead, newest install first, and goes through the same
+-- states.
 
 local req = ...
 local steps_mod = req("steps")
@@ -59,6 +63,65 @@ function M.new(deps, ids)
         self.state = "blocked"
       end
       for _, step in ipairs(item.steps or {}) do
+        self.queue[#self.queue + 1] = { item = item, step = step }
+      end
+    end
+  end
+  return self
+end
+
+-- ids: what to remove (default: everything in the manifest), newest first
+function M.new_uninstall(deps, ids)
+  local manifest = deps:manifest()
+  local self = setmetatable({
+    deps = deps,
+    mode = "uninstall",
+    items = {},
+    queue = {},
+    idx = 0,
+    state = "done",
+    log_lines = {},
+    runner = runner_mod.new(deps.dir),
+    results = {},
+  }, Session)
+
+  local wanted
+  if ids then
+    wanted = {}
+    for _, id in ipairs(ids) do wanted[id] = true end
+  end
+  local ctx = { dir = deps.dir }
+  local installed = manifest:ids()
+  for i = #installed, 1, -1 do
+    local id = installed[i]
+    local entry = manifest:get(id)
+    if not wanted or wanted[id] then
+      local item = { spec = { id = id, label = entry.label,
+                              restart = entry.restart }, steps = {} }
+      for _, s in ipairs(entry.steps or {}) do
+        local step, err, hint = steps_mod.build(s, deps.platform, ctx)
+        if not step then
+          item.blocked, item.hint = err, hint
+          break
+        end
+        item.steps[#item.steps + 1] = step
+      end
+      if #item.steps == 0 and not item.blocked then
+        -- nothing to undo: just forget it
+        manifest:forget(id)
+        self.results[id] = true
+      else
+        self.items[#self.items + 1] = item
+      end
+    end
+  end
+
+  if #self.items > 0 then
+    self.state = "review"
+    self.sel = 1
+    for _, item in ipairs(self.items) do
+      if item.blocked then self.state = "blocked" end
+      for _, step in ipairs(item.steps) do
         self.queue[#self.queue + 1] = { item = item, step = step }
       end
     end
@@ -123,9 +186,22 @@ function Session:tick()
   self.spin = (self.spin or 0) + 1
   if not r.done then return end
 
-  if r.code == 0 then
+  if r.code == 0 and self.mode == "uninstall" then
+    if is_last_step(self, entry) then
+      local spec = entry.item.spec
+      entry.item.ok = true
+      self.did_remove = true
+      self.deps:manifest():forget(spec.id)
+      if spec.restart then
+        self.needs_restart = true
+        self.deps:mark_restart()
+      end
+      self.results[spec.id] = true
+    end
+  elseif r.code == 0 then
     if is_last_step(self, entry) then
       if self.deps:check(entry.item.spec) then
+        self.deps:record(entry.item.spec)
         entry.item.ok = true
         self.did_install = true
         if entry.item.spec.restart then

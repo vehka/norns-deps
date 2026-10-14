@@ -9,6 +9,10 @@
 --   { cmd = "shell", priv = true, label = "..." }
 --
 -- build() returns { label, cmd, progress, priv, hint } or nil, reason.
+--
+-- A step with `remove = true` undoes what the same step installs: removes
+-- the package, the pipx tool, the downloaded file or the UGen folder.
+-- derive_removal() writes those steps for a recipe.
 
 local req = ...
 local platform = req("platform")
@@ -192,10 +196,57 @@ function builders.cmd(spec, p)
            progress = spec.progress }
 end
 
+-- the opposite of each builder, for `remove = true` steps
+local removers = {}
+
+function removers.pkg(spec, p)
+  if not p.pm then
+    return nil, "no supported package manager found"
+  end
+  local pkgs = pkg_names(spec, p)
+  if not pkgs then
+    return nil, "no " .. p.pm .. " package listed"
+  end
+  local list = table.concat(pkgs, " ")
+  local cmd = ({
+    apt = "DEBIAN_FRONTEND=noninteractive apt-get remove -y ",
+    pacman = "pacman -R --noconfirm ",
+    dnf = "dnf remove -y ",
+  })[p.pm] .. list
+  local manual = ({
+    apt = "apt remove ", pacman = "pacman -R ", dnf = "dnf remove ",
+  })[p.pm] .. list
+  return { label = "remove " .. list, cmd = cmd, priv = true, manual = manual }
+end
+
+function removers.pipx(spec)
+  return { label = "pipx: remove " .. spec.pipx,
+           cmd = "pipx uninstall " .. spec.pipx }
+end
+
+function removers.ugens(spec, p)
+  local into = spec.into
+  if type(into) ~= "string" or not into:match("^[%w_][%w_.-]*$") then
+    return nil, "ugens step needs `into`, a folder name"
+  end
+  local dest = ugens.user_dir(p) .. "/" .. into
+  return { label = "remove UGens: " .. into, cmd = "rm -rf " .. q(dest) }
+end
+
+function removers.url(spec, p)
+  if not spec.dest then
+    return nil, "a download without `dest` has nothing to remove"
+  end
+  local dest = expand(p, spec.dest)
+  return { label = "remove " .. basename(dest), cmd = "rm -f " .. q(dest) }
+end
+
 function M.build(spec, p, ctx)
   for _, kind in ipairs { "pkg", "pipx", "ugens", "url", "cmd" } do
     if spec[kind] then
-      local step, err = builders[kind](spec, p, ctx)
+      local build = builders[kind]
+      if spec.remove and kind ~= "cmd" then build = removers[kind] end
+      local step, err = build(spec, p, ctx)
       if not step then return nil, err end
       if step.priv then
         step.hint = platform.manual_cmd(p, step.manual or step.cmd)
@@ -226,6 +277,33 @@ function M.matches(when, p)
     if not match(v, p[k]) then return false end
   end
   return true
+end
+
+-- first recipe whose `when` matches
+function M.recipe(spec, p)
+  for _, recipe in ipairs(spec.install or {}) do
+    if M.matches(recipe.when, p) then return recipe end
+  end
+end
+
+-- removal steps for a recipe's steps, last step first. Commands and
+-- extracted downloads can't be undone automatically; a dependency that
+-- uses them lists its own `uninstall` steps.
+function M.derive_removal(recipe)
+  local out = {}
+  for i = #(recipe and recipe.steps or {}), 1, -1 do
+    local s = recipe.steps[i]
+    if s.pkg then
+      out[#out + 1] = { pkg = s.pkg, remove = true }
+    elseif s.pipx then
+      out[#out + 1] = { pipx = s.pipx, remove = true }
+    elseif s.ugens then
+      out[#out + 1] = { ugens = s.ugens, into = s.into, remove = true }
+    elseif s.url and s.dest and not s.extract then
+      out[#out + 1] = { url = s.url, dest = s.dest, remove = true }
+    end
+  end
+  return out
 end
 
 -- first recipe whose `when` matches, compiled; nil, reason, hints otherwise
