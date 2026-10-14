@@ -36,12 +36,28 @@ end
 ```
 
 `ensure` takes over `key`, `enc` and `redraw` while the installer screen is
-open and puts the script's own back when it closes. The screen lists what is
-missing, and one K3 installs all of it (E2 shows each item's `why`); when it
-is done, it lists each item as installed, skipped or failed until K3. It does
-nothing when everything is already in place. Scripts usually reload themselves after an
+open and puts the script's own back when it closes. It does nothing when
+everything is already in place. Scripts usually reload themselves after an
 install (`norns.script.load(norns.state.script)`), since availability is
 decided at init.
+
+### The installer screen
+
+1. **Review**: "install 3 items", one line per missing dependency with its
+   `size`. It is one decision: K3 installs all of them, K2 cancels. E2
+   moves the highlight to show each item's `why` (or why it is blocked).
+2. **Running**: the current dependency and step, with a progress bar. K2
+   cancels.
+3. **Done**: one line per dependency, installed, skipped (optional and
+   blocked) or failed (optional, and its step failed), so steps that went
+   past too fast to read can be checked afterwards. E2 scrolls, K3 closes.
+   When a dependency needs a restart, K3 restarts instead and K2 is "later".
+
+A required step that fails stops the run on a **failed** screen with the
+end of its log (E2 scrolls, K3 retries, K2 closes). A required dependency
+with no recipe for the platform, or root steps without a way to get root,
+show a **blocked** screen with the command to run by hand instead.
+`remove` uses the same screens ("remove 2 items", K3 remove all).
 
 ### Dependency fields
 
@@ -98,9 +114,10 @@ restart has really happened. `d:ensure` shows only that screen when nothing is
 missing but a restart is still pending.
 
 Mods have no `include()`: load the library with
-`dofile(_path.code .. mod.this_name .. "/lib/deps.lua")` and call `ensure`
-from a `script_post_init` hook, since loading a script resets the key, enc
-and redraw handlers.
+`dofile(_path.code .. "mymod/lib/deps.lua")` (`mod.this_name` only holds
+the name while the mod file loads). Open `ensure` once a script is running,
+e.g. from a `script_post_init` hook or a `clock.run` with a short sleep,
+since loading a script resets the key, enc and redraw handlers.
 
 ### UGens
 
@@ -217,6 +234,10 @@ to a log and its exit code to a status file; the UI polls them. This avoids
 `norns.system_cmd`, which only reports once a command finishes and never
 reports a failure. Progress comes from apt's `APT::Status-Fd` output or the
 `NN%` lines of wget/curl; other steps show an indeterminate bar.
+
+The library only uses `os.execute` and read-mode `io.popen`, so it also
+works on the norns 3 beta, where shell commands go through a sidecar
+process and `io.popen(cmd, "w")` is refused.
 
 ## Tests
 
