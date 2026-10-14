@@ -36,8 +36,10 @@ end
 ```
 
 `ensure` takes over `key`, `enc` and `redraw` while the installer screen is
-open and puts the script's own back when it closes. It does nothing when
-everything is already in place. Scripts usually reload themselves after an
+open and puts the script's own back when it closes. The screen lists what is
+missing, and one K3 installs all of it (E2 shows each item's `why`); when it
+is done, it lists each item as installed, skipped or failed until K3. It does
+nothing when everything is already in place. Scripts usually reload themselves after an
 install (`norns.script.load(norns.state.script)`), since availability is
 decided at init.
 

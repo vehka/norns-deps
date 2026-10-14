@@ -23,7 +23,6 @@ is the `SPEECH` script.
   screen; they are only in the job log now.
 - A 64-bit kernel under a 32-bit system reports `aarch64`; `{arch}` then
   picks the wrong plugin. Detect the userland (`dpkg --print-architecture`).
-- Show a summary of optional deps that failed and were skipped.
 - Cancel while a `pkexec` prompt is open (the job may outlive the cancel).
 - UI: scroll the failed-step log fully; show the manual command on failure
   of a privileged step.
