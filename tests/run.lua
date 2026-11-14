@@ -45,6 +45,39 @@ test("apt step uses sudo and status fd", function()
   eq(s.progress, "apt")
 end)
 
+test("apt update repoints archived Raspbian buster", function()
+  local dir = tmp .. "/apt"
+  os.execute("mkdir -p " .. dir .. "/sources.list.d")
+  local function write(path, s)
+    local f = assert(io.open(path, "w")); f:write(s); f:close()
+  end
+  write(dir .. "/sources.list",
+    "deb http://raspbian.raspberrypi.org/raspbian/ buster main contrib\n"
+    .. "deb http://blokas.io/apt/ rpi main\n")
+  write(dir .. "/sources.list.d/raspi.list",
+    "deb http://archive.raspberrypi.org/debian/ buster main\n")
+  -- first update fails like the real one, later ones succeed
+  write(dir .. "/update.sh", "if [ ! -e " .. dir .. "/ran ]; then touch "
+    .. dir .. "/ran; echo \"E: The repository 'http://raspbian.raspberrypi.org"
+    .. "/raspbian buster Release' no longer has a Release file.\"; exit 100; fi\n"
+    .. "echo updated-again\n")
+  local script = steps.apt_update(dir .. "/sources.list " .. dir
+    .. "/sources.list.d/*.list", "sh " .. dir .. "/update.sh")
+  local out = platform.capture("sh -c " .. platform.shell_quote(script))
+  contains(out, "updated-again")
+  contains(out, "now uses legacy.raspbian.org")
+  local f = io.open(dir .. "/sources.list"); local s = f:read("a"); f:close()
+  contains(s, "http://legacy.raspbian.org/raspbian/ buster main contrib")
+  contains(s, "blokas.io")
+  f = io.open(dir .. "/sources.list.d/raspi.list"); s = f:read("a"); f:close()
+  contains(s, "archive.raspberrypi.org")
+  eq(io.open(dir .. "/sources.list.d/raspi.list.bak"), nil)
+  assert(io.open(dir .. "/sources.list.bak"), "keeps a backup")
+  -- a healthy update leaves the sources alone
+  out = platform.capture("sh -c " .. platform.shell_quote(script))
+  eq(out:match("legacy"), nil)
+end)
+
 test("per-package-manager names", function()
   local spec = { pkg = { apt = "espeak-ng", pacman = "espeak-ng-pkg" } }
   local p = { pm = "pacman", priv = "root", home = tmp }

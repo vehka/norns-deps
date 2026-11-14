@@ -1,6 +1,6 @@
 # TODO
 
-State: library, UI and tests work (`lua5.3 tests/run.lua`, 33 tests). Verified
+State: library, UI and tests work (`lua5.3 tests/run.lua`, 34 tests). Verified
 on desktop norns (Manjaro) with fake deps and a real download. First consumer
 is the `SPEECH` script.
 
@@ -15,7 +15,9 @@ is the `SPEECH` script.
 - ~~The script reload after a successful install (`norns.script.load`).~~
 - ~~The `ugens` step on a device, with a real plugin (nb_pp's PlaitsPalette)
   and the restart after it.~~ (shield, armv7l, served over the LAN)
-- rp4 variants (XL, fates, rp4 shields): only assumed to match shield.
+- rp4 variants (XL, rp4 shields): only assumed to match shield. ~~fates~~
+  (rp4, armv7l, update 250926): nullcast's apt deps installed after the
+  archived-buster repair.
 
 ## Next
 

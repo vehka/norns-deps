@@ -37,6 +37,33 @@ local function pkg_names(spec, p)
   return pkgs
 end
 
+-- Raspbian buster, which every norns image runs, moved to
+-- legacy.raspbian.org; the old hosts answer 404 for the index and the
+-- packages alike. When apt-get update says so, point the sources at the
+-- archive (keeping a .bak) and update again. Other repos that are gone
+-- (blokas.io on many images) only fail the update; the install goes on
+-- with the lists apt has, and fails on its own if those don't do.
+-- sources and update are overridable for tests.
+local OLD_RASPBIAN = [[\(raspbian\.raspberrypi\.\(org\|com\)\|mirrordirector\.raspbian\.org\)/raspbian]]
+
+function M.apt_update(sources, update)
+  sources = sources or "/etc/apt/sources.list /etc/apt/sources.list.d/*.list"
+  update = update or "apt-get update -qq"
+  local gone = OLD_RASPBIAN .. [[/\? buster]]
+  return table.concat({
+    "export DEBIAN_FRONTEND=noninteractive LC_ALL=C",
+    'out=$(' .. update .. ' 2>&1); [ -n "$out" ] && echo "$out"',
+    "if echo \"$out\" | grep -q '" .. gone .. "'; then",
+    "  for f in $(grep -l '" .. gone .. "' " .. sources .. " 2>/dev/null); do",
+    "    sed -i.bak '/ buster/s#" .. OLD_RASPBIAN
+      .. "#legacy.raspbian.org/raspbian#' \"$f\"",
+    '    echo "norns-deps: $f now uses legacy.raspbian.org (was: $f.bak)"',
+    "  done",
+    "  " .. update .. " || true",
+    "fi",
+  }, "\n")
+end
+
 local builders = {}
 
 function builders.pkg(spec, p)
@@ -51,8 +78,8 @@ function builders.pkg(spec, p)
   local cmd, progress
   if p.pm == "apt" then
     -- status lines go to stdout, where the runner reads them from the log
-    cmd = "DEBIAN_FRONTEND=noninteractive apt-get update -qq"
-      .. " && DEBIAN_FRONTEND=noninteractive apt-get install -y"
+    cmd = M.apt_update()
+      .. "\napt-get install -y"
       .. (spec.recommends == false and " --no-install-recommends" or "")
       .. " -o APT::Status-Fd=1 " .. list
     progress = "apt"

@@ -103,6 +103,18 @@ Steps that need root (`pkg`, `priv = true`) use, in order: already root,
 password prompt). With none of these the installer screen lists the exact
 `sudo ...` command to run by hand instead of failing halfway.
 
+### Archived Raspbian buster
+
+norns images run Raspbian 10 (buster), which has moved to
+`legacy.raspbian.org`; the old `raspbian.raspberrypi.org` host now answers
+404, so `apt-get update` and every download fail. When `apt-get update`
+reports this, a `pkg` step rewrites the Raspbian lines in
+`/etc/apt/sources.list` (and `sources.list.d/*.list`) to
+`legacy.raspbian.org`, keeping the old file as `.bak`, and updates again.
+It says so in the step's log. Other repositories that no longer exist
+(blokas.io on many images) only fail the update: the install carries on
+with the package lists apt already has.
+
 ### Restart required
 
 A dependency with `restart = true` is only usable once sclang has been
