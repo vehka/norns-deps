@@ -103,17 +103,24 @@ Steps that need root (`pkg`, `priv = true`) use, in order: already root,
 password prompt). With none of these the installer screen lists the exact
 `sudo ...` command to run by hand instead of failing halfway.
 
-### Archived Raspbian buster
+### Archived Raspbian releases
 
-norns images run Raspbian 10 (buster), which has moved to
-`legacy.raspbian.org`; the old `raspbian.raspberrypi.org` host now answers
-404, so `apt-get update` and every download fail. When `apt-get update`
-reports this, a `pkg` step rewrites the Raspbian lines in
+Raspbian moves old releases to `legacy.raspbian.org`, after which the old
+`raspbian.raspberrypi.org` host answers 404 for them, so `apt-get update`
+and every download fail. norns images before 220306 run Raspbian 10
+(buster), which has already moved; 220306 and later run Raspbian 11
+(bullseye), which is still on the old host but will move too. SYSTEM >
+UPDATE does not change the OS, so a norns stays on whatever its last
+flashed image had.
+
+When `apt-get update` reports a 404 from the old host, a `pkg` step reads
+the releases it names from the errors, rewrites those Raspbian lines in
 `/etc/apt/sources.list` (and `sources.list.d/*.list`) to
 `legacy.raspbian.org`, keeping the old file as `.bak`, and updates again.
-It says so in the step's log. Other repositories that no longer exist
-(blokas.io on many images) only fail the update: the install carries on
-with the package lists apt already has.
+It says so in the step's log. Lines for releases that did not fail are
+left alone. Other repositories that fail (blokas.io on many images) only
+fail the update: the install carries on with the package lists apt
+already has.
 
 ### Restart required
 

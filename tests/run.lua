@@ -78,6 +78,52 @@ test("apt update repoints archived Raspbian buster", function()
   eq(out:match("legacy"), nil)
 end)
 
+test("apt update repoints only the Raspbian releases that 404", function()
+  local dir = tmp .. "/apt-bullseye"
+  os.execute("mkdir -p " .. dir)
+  local function write(path, s)
+    local f = assert(io.open(path, "w")); f:write(s); f:close()
+  end
+  write(dir .. "/sources.list",
+    "deb http://raspbian.raspberrypi.org/raspbian/ bullseye main contrib\n"
+    .. "#deb-src http://raspbian.raspberrypi.org/raspbian/ bullseye main\n"
+    .. "deb http://raspbian.raspberrypi.org/raspbian/ bookworm main\n")
+  -- the "Failed to fetch .../dists/<release>/" form, plus a package 404
+  -- whose path must not be read as a release
+  write(dir .. "/update.sh", "if [ ! -e " .. dir .. "/ran ]; then touch "
+    .. dir .. "/ran; echo 'W: Failed to fetch http://raspbian.raspberrypi.org"
+    .. "/raspbian/dists/bullseye/InRelease  404  Not Found [IP: 1.2.3.4 80]';"
+    .. " echo 'E: Failed to fetch http://raspbian.raspberrypi.org/raspbian"
+    .. "/pool/main/s/sox/sox.deb  404  Not Found'; exit 100; fi\n"
+    .. "echo updated-again\n")
+  local script = steps.apt_update(dir .. "/sources.list",
+    "sh " .. dir .. "/update.sh")
+  local out = platform.capture("sh -c " .. platform.shell_quote(script))
+  contains(out, "updated-again")
+  contains(out, "now uses legacy.raspbian.org for bullseye (was:")
+  local f = io.open(dir .. "/sources.list"); local s = f:read("a"); f:close()
+  contains(s, "deb http://legacy.raspbian.org/raspbian/ bullseye main contrib")
+  contains(s, "#deb-src http://legacy.raspbian.org/raspbian/ bullseye main")
+  contains(s, "deb http://raspbian.raspberrypi.org/raspbian/ bookworm main")
+  eq(out:match("pool"), "pool") -- echoed from apt, but not repaired
+  eq(out:match("for pool"), nil)
+end)
+
+test("apt update leaves sources alone on other Raspbian warnings", function()
+  local dir = tmp .. "/apt-warn"
+  os.execute("mkdir -p " .. dir)
+  local line = "deb http://raspbian.raspberrypi.org/raspbian/ buster main\n"
+  local f = assert(io.open(dir .. "/sources.list", "w")); f:write(line); f:close()
+  local script = steps.apt_update(dir .. "/sources.list",
+    "echo \"W: Repository 'http://raspbian.raspberrypi.org/raspbian buster"
+    .. " InRelease' changed its 'Suite' value\"")
+  local out = platform.capture("sh -c " .. platform.shell_quote(script))
+  eq(out:match("legacy"), nil)
+  f = io.open(dir .. "/sources.list"); local s = f:read("a"); f:close()
+  eq(s, line)
+  eq(io.open(dir .. "/sources.list.bak"), nil)
+end)
+
 test("per-package-manager names", function()
   local spec = { pkg = { apt = "espeak-ng", pacman = "espeak-ng-pkg" } }
   local p = { pm = "pacman", priv = "root", home = tmp }
