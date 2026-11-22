@@ -37,10 +37,12 @@ local function pkg_names(spec, p)
   return pkgs
 end
 
--- Raspbian buster, which every norns image runs, moved to
--- legacy.raspbian.org; the old hosts answer 404 for the index and the
--- packages alike. When apt-get update says so, point the sources at the
--- archive (keeping a .bak) and update again. Other repos that are gone
+-- Raspbian moves old releases to legacy.raspbian.org; the old hosts then
+-- answer 404 for the index and the packages alike. Buster (norns images
+-- before 220306) has moved; bullseye (220306 and later) will follow. When
+-- apt-get update reports a 404 from the old host, the releases it names
+-- are read from the errors, their lines are pointed at the archive
+-- (keeping a .bak) and apt updates again. Other repos that are gone
 -- (blokas.io on many images) only fail the update; the install goes on
 -- with the lists apt has, and fails on its own if those don't do.
 -- sources and update are overridable for tests.
@@ -49,15 +51,24 @@ local OLD_RASPBIAN = [[\(raspbian\.raspberrypi\.\(org\|com\)\|mirrordirector\.ra
 function M.apt_update(sources, update)
   sources = sources or "/etc/apt/sources.list /etc/apt/sources.list.d/*.list"
   update = update or "apt-get update -qq"
-  local gone = OLD_RASPBIAN .. [[/\? buster]]
   return table.concat({
     "export DEBIAN_FRONTEND=noninteractive LC_ALL=C",
     'out=$(' .. update .. ' 2>&1); [ -n "$out" ] && echo "$out"',
-    "if echo \"$out\" | grep -q '" .. gone .. "'; then",
-    "  for f in $(grep -l '" .. gone .. "' " .. sources .. " 2>/dev/null); do",
-    "    sed -i.bak '/ buster/s#" .. OLD_RASPBIAN
-      .. "#legacy.raspbian.org/raspbian#' \"$f\"",
-    '    echo "norns-deps: $f now uses legacy.raspbian.org (was: $f.bak)"',
+    -- "E: The repository 'http://<old>/raspbian buster Release' no longer
+    -- has a Release file." / "W: Failed to fetch http://<old>/raspbian/
+    -- dists/buster/InRelease  404  Not Found"; OLD_RASPBIAN holds groups
+    -- 1-2, so the release name is group 4
+    "rels=$(echo \"$out\" | grep -E '404|no longer has a Release file'"
+      .. " | sed -n 's#.*" .. OLD_RASPBIAN
+      .. [[\(/\? \+\|/dists/\)\([a-z][a-z]*\).*#\4#p']]
+      .. " | sort -u | tr '\\n' ' ')",
+    'if [ -n "$rels" ]; then',
+    [[  alt=$(echo $rels | sed 's/ /\\|/g')]],
+    '  line="' .. OLD_RASPBIAN .. [[/\? \($alt\)\( \|\$\)"]],
+    '  for f in $(grep -l "$line" ' .. sources .. ' 2>/dev/null); do',
+    '    sed -i.bak "\\#$line#s#' .. OLD_RASPBIAN
+      .. '#legacy.raspbian.org/raspbian#" "$f"',
+    '    echo "norns-deps: $f now uses legacy.raspbian.org for $rels(was: $f.bak)"',
     "  done",
     "  " .. update .. " || true",
     "fi",
